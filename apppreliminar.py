@@ -1157,7 +1157,20 @@ arquivo_resultados = st.sidebar.file_uploader("ListaResultado (.xlsx)", type=["x
 
 st.markdown('<p class="main-title">📊 Dashboard ENEMP</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">Participantes, formação acadêmica, instituições e trabalhos submetidos</p>', unsafe_allow_html=True)
-
+st.markdown("""
+<div style="
+    background: linear-gradient(90deg, #eff6ff, #dbeafe);
+    border-left: 5px solid #2563eb;
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin-bottom: 20px;
+    color: #1e3a8a;
+    font-size: 0.95rem;
+">
+    <strong>ℹ️ Aviso:</strong> Este dashboard foi criado por <strong>MelquinhoSedeque</strong>.
+    Os dados carregados não são armazenados em servidor: Não altere o código no GitHub.
+</div>
+""", unsafe_allow_html=True)
 if arquivo_participantes is None and arquivo_resultados is None:
     st.info("👈 Envie ao menos uma das planilhas na barra lateral para começar (Participantes e/ou Resultados).")
     st.stop()
@@ -1185,4 +1198,4 @@ if dados_resultados is not None:
         pagina_resultados(dados_resultados, dedup_part, qtd_rev)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("joseserra")
+st.sidebar.caption("MelquinhoSedeque")
