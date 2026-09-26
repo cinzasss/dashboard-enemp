@@ -1185,4 +1185,4 @@ if dados_resultados is not None:
         pagina_resultados(dados_resultados, dedup_part, qtd_rev)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("MelquinhoSedeque")
+st.sidebar.caption("joseserra")
