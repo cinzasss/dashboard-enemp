@@ -1198,15 +1198,22 @@ def pagina_resultados(dados_resultados: pd.DataFrame,
             text="_label",
             color="Porcentagem",
             color_continuous_scale="Purples",
+            custom_data=["Quantidade", "_label"],
         )
-        fig.update_traces(textposition="outside")
+        fig.update_traces(
+            textposition="outside",
+            textfont=dict(color="black", size=13),
+            hovertemplate="<b>%{y}</b><br>%{customdata[0]} trabalhos<br>%{customdata[1]}<extra></extra>",
+        )
         fig.update_layout(
             showlegend=False,
             coloraxis_showscale=False,
             xaxis_title="% dos trabalhos",
             yaxis_title="",
             height=450,
-            xaxis=dict(ticksuffix="%"),
+            xaxis=dict(ticksuffix="%", tickfont=dict(color="black"), title_font=dict(color="black")),
+            yaxis=dict(tickfont=dict(color="black")),
+            font=dict(color="black"),
         )
         st.plotly_chart(fig, use_container_width=True)
         st.caption(
