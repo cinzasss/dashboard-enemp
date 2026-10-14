@@ -309,17 +309,19 @@ def pagina_participantes(dados: pd.DataFrame):
             df_top = bloco["top"].reset_index(); df_top.columns = ["Instituição", "Quantidade"]
             fig = px.bar(df_top.sort_values("Quantidade"), x="Quantidade", y="Instituição", orientation="h",
                          text="Quantidade", color="Quantidade", color_continuous_scale="Blues")
-            fig.update_traces(textposition="outside")
+            fig.update_traces(textposition="outside", textfont=dict(color="black"))
             fig.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Nº de participantes",
-                               yaxis_title="", height=500)
+                               yaxis_title="", height=500,
+                               xaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black")),
+                               yaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black")))
             st.plotly_chart(fig, use_container_width=True, key=f"grafico_inst_{chave}")
         with st.expander("📋 Ver contagem completa de todas as instituições"):
             df_all = bloco["contagem"].reset_index(); df_all.columns = ["Instituição", "Quantidade"]
             st.dataframe(df_all, use_container_width=True, height=400)
-
+    
     with aba_todos: render_instituicoes(m["inst_todos"], "todos")
     with aba_aprov: render_instituicoes(m["inst_aprovados"], "aprovados")
-
+    
     st.markdown("<br>", unsafe_allow_html=True)
     col_esq, col_dir = st.columns(2)
     with col_esq:
@@ -327,7 +329,7 @@ def pagina_participantes(dados: pd.DataFrame):
         df_status = pd.DataFrame({"Status": ["Aprovados", "Pendentes"], "Quantidade": [len(m["aprovados"]), len(m["pendentes"])]})
         fig_pie = px.pie(df_status, names="Status", values="Quantidade", color="Status",
                           color_discrete_map={"Aprovados": "#16a34a", "Pendentes": "#f59e0b"}, hole=0.5)
-        fig_pie.update_traces(textinfo="percent+label", textfont_size=14)
+        fig_pie.update_traces(textinfo="percent+label", textfont_size=14, textfont=dict(color="black"))
         st.plotly_chart(fig_pie, use_container_width=True)
     with col_dir:
         st.subheader("📚 Distribuição por Formação")
@@ -337,19 +339,23 @@ def pagina_participantes(dados: pd.DataFrame):
         })
         fig_bar = px.bar(df_form, x="Formação", y="Quantidade", color="Formação",
                           color_discrete_sequence=px.colors.qualitative.Bold, text="Quantidade")
-        fig_bar.update_traces(textposition="outside")
-        fig_bar.update_layout(showlegend=False, yaxis_title="Qtd.", xaxis_title="")
+        fig_bar.update_traces(textposition="outside", textfont=dict(color="black"))
+        fig_bar.update_layout(showlegend=False, yaxis_title="Qtd.", xaxis_title="",
+                              xaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black")),
+                              yaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black")))
         st.plotly_chart(fig_bar, use_container_width=True)
-
+    
     st.subheader("🧑‍🏫 Disponibilidade como Revisor")
     nao_rev = len(m["aprovados"]) - len(m["revisores"])
     df_rev = pd.DataFrame({"Disponibilidade": ["Sim", "Não / Não respondeu"], "Quantidade": [len(m["revisores"]), nao_rev]})
     fig_rev = px.bar(df_rev, x="Disponibilidade", y="Quantidade", color="Disponibilidade",
                       color_discrete_map={"Sim": "#9333ea", "Não / Não respondeu": "#cbd5e1"}, text="Quantidade")
-    fig_rev.update_traces(textposition="outside")
-    fig_rev.update_layout(showlegend=False, yaxis_title="Qtd.")
+    fig_rev.update_traces(textposition="outside", textfont=dict(color="black"))
+    fig_rev.update_layout(showlegend=False, yaxis_title="Qtd.",
+                          xaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black")),
+                          yaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black")))
     st.plotly_chart(fig_rev, use_container_width=True)
-
+    
     st.subheader("🗂️ Explorar Dados")
     a1, a2, a3, a4, a5 = st.tabs(["✅ Aprovados", "⏳ Pendentes", "🧑‍🏫 Revisores", "📄 Todos (sem duplicados)", "⚠️ Duplicados detectados"])
     with a1: st.caption(f"Total: {len(m['aprovados'])}"); st.dataframe(m["aprovados"], use_container_width=True, height=400)
@@ -357,13 +363,13 @@ def pagina_participantes(dados: pd.DataFrame):
     with a3: st.caption(f"Total: {len(m['revisores'])}"); st.dataframe(m["revisores"], use_container_width=True, height=400)
     with a4: st.caption(f"Total: {len(m['dados_dedup'])} (de {len(m['dados_originais'])} linhas originais)"); st.dataframe(m["dados_dedup"], use_container_width=True, height=400)
     with a5: st.caption(f"{len(m['duplicados_detectados'])} linhas — revise coincidências de nome"); st.dataframe(m["duplicados_detectados"], use_container_width=True, height=400)
-
+    
     st.sidebar.markdown("---")
     st.sidebar.subheader("⬇️ Exportar Participantes")
     st.sidebar.download_button("Baixar Aprovados (CSV)", m["aprovados"].to_csv(index=False).encode("utf-8-sig"), "aprovados.csv", "text/csv")
     if len(m["revisores"]):
         st.sidebar.download_button("Baixar Revisores (CSV)", m["revisores"].to_csv(index=False).encode("utf-8-sig"), "revisores.csv", "text/csv")
-
+    
     return m
 
 
