@@ -785,10 +785,15 @@ def analisar_resumos_x_completos(df: pd.DataFrame) -> dict:
     A coluna 'Submeteu Trabalho Completo' da planilha vem toda 'Não', então o
     pareamento é feito por conteúdo, em dois passos:
       1) mesmo 1º autor + título equivalente (mesma regra da deduplicação);
-      2) título praticamente idêntico (>= 85%), mesmo que o 1º autor mude.
+      2) título praticamente idêntico (>= 85%), mesmo que o 1º autor mude;
+      3) TÍTULO ALTERADO: mesmo apresentador (e-mail) ou mesmo 1º autor, entre os
+         resumos e artigos que sobraram. Se só há um candidato, o par é feito;
+         se há vários, só pareia quando o título ainda é parecido (>= 50%).
+         Esses pares são marcados como 'prováveis' para conferência manual.
     Artigos sem resumo pareado vão para uma lista de conferência manual."""
     vazio = {"resumos_total": 0, "completos_total": 0, "resumos_com_completo": df.iloc[0:0],
-             "resumos_sem_completo": df.iloc[0:0], "completos_sem_resumo": df.iloc[0:0]}
+             "resumos_sem_completo": df.iloc[0:0], "completos_sem_resumo": df.iloc[0:0],
+             "pares_provaveis": pd.DataFrame()}
     if df.empty or "modalidade" not in df.columns or "Título" not in df.columns:
         return vazio
 
@@ -825,8 +830,43 @@ def analisar_resumos_x_completos(df: pd.DataFrame) -> dict:
             par[i] = melhor
             usados.add(melhor)
 
-    aux = ["_eh_completo", "_t", "_a"]
+    # passo 3: título alterado -> mesmo apresentador (e-mail) ou mesmo 1º autor
+    col_em = "Email dos apresentadores"
+    d["_em"] = d[col_em].astype(str).str.strip().str.lower() if col_em in d.columns else ""
+    resumos = d[~d["_eh_completo"]]
+    completos = d[d["_eh_completo"]]
+    propostas = []
+    for i, c in completos.iterrows():
+        if i in par:
+            continue
+        mesmo_em = (resumos["_em"] == c["_em"]) & (c["_em"] not in ("", "nan", "none"))
+        pool = resumos[(~resumos.index.isin(usados)) & (mesmo_em | (resumos["_a"] == c["_a"]))]
+        if pool.empty:
+            continue
+        sims = {j: SequenceMatcher(None, c["_t"], s_["_t"]).ratio() for j, s_ in pool.iterrows()}
+        j_best = max(sims, key=sims.get)
+        propostas.append((len(pool) == 1, sims[j_best], i, j_best, len(pool)))
+    # candidatos únicos primeiro; depois os mais parecidos
+    propostas.sort(key=lambda x: (not x[0], -x[1]))
+    linhas_prov = []
+    for unico, sim, i, j, n_cand in propostas:
+        if j in usados or i in par:
+            continue
+        if unico or sim >= 0.5:
+            par[i] = j
+            usados.add(j)
+            linhas_prov.append({
+                "Nº resumo": d.loc[j, "Número"], "Título do resumo": d.loc[j, "Título"],
+                "Nº artigo": d.loc[i, "Número"], "Título do artigo": d.loc[i, "Título"],
+                "Apresentador(es)": d.loc[i, "Apresentadores"] if "Apresentadores" in d.columns else "",
+                "Similaridade dos títulos": f"{sim:.0%}",
+                "Critério": "único candidato do apresentador" if unico else f"{n_cand} candidatos, melhor título",
+            })
+    pares_provaveis = pd.DataFrame(linhas_prov)
+
+    aux = ["_eh_completo", "_t", "_a", "_em"]
     return {
+        "pares_provaveis": pares_provaveis,
         "resumos_total": len(resumos),
         "completos_total": len(completos),
         "resumos_com_completo": resumos.loc[sorted(usados)].drop(columns=aux).reset_index(drop=True),
@@ -1173,15 +1213,21 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
     pct = f"{(n_com_art / n_res * 100):.0f}%" if n_res else "—"
     st.caption(
         "A planilha tem mais resumos do que artigos completos porque nem todo resumo virou artigo. "
-        "Aqui cada artigo completo é pareado com o resumo que o originou (mesmo 1º autor + título "
-        "equivalente, ou título quase idêntico) para mostrar **quais resumos ainda não têm artigo**. "
-        "A coluna 'Submeteu Trabalho Completo' da planilha está toda como 'Não', por isso o pareamento "
-        "é feito pelo conteúdo e pode ter pequenos desvios — confira as listas abaixo."
+        "Aqui cada artigo completo é pareado com o resumo que o originou para mostrar **quais resumos "
+        "ainda não têm artigo**. O pareamento tenta, em ordem: (1) mesmo 1º autor + título equivalente; "
+        "(2) título quase idêntico; (3) **título alterado** — mesmo apresentador (e-mail) ou mesmo 1º autor, "
+        "entre o que sobrou. Os pares do passo 3 são 'prováveis' e estão listados na aba **🔁 Pares prováveis** "
+        "para você conferir. A coluna 'Submeteu Trabalho Completo' da planilha está toda como 'Não', por isso "
+        "o pareamento é feito pelo conteúdo."
     )
+    n_prov = len(rxc["pares_provaveis"])
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: card("Resumos (registros)", n_res, "#0ea5e9")
     with c2: card("Artigos completos (registros)", n_comp, "#22c55e")
     with c3: card("Resumos que viraram artigo", f"{n_com_art} ({pct})", "#16a34a")
+    if n_prov:
+        st.caption(f"Dos resumos que viraram artigo, **{n_prov}** foram pareados mesmo com o título alterado "
+                   f"(pares prováveis — veja a aba 🔁).")
     with c4: card("Resumos sem artigo completo", n_sem_art, "#f59e0b")
     with c5: card("Artigos sem resumo localizado", n_art_orfao, "#94a3b8")
 
@@ -1200,7 +1246,8 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
                           yaxis_title="", height=420)
         st.plotly_chart(fig, use_container_width=True)
 
-    t1, t2, t3 = st.tabs(["⏳ Resumos sem artigo completo", "❓ Artigos sem resumo localizado", "✅ Resumos que viraram artigo"])
+    t1, t2, t3, t4 = st.tabs(["⏳ Resumos sem artigo completo", "❓ Artigos sem resumo localizado",
+                              "✅ Resumos que viraram artigo", f"🔁 Pares prováveis — título alterado ({n_prov})"])
     with t1:
         st.caption(f"{n_sem_art} resumo(s) — autores que podem ser cobrados para enviar o artigo completo.")
         st.dataframe(rxc["resumos_sem_completo"][cols_rxc], use_container_width=True, height=400, hide_index=True)
@@ -1217,6 +1264,16 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
         st.caption(f"{n_com_art} resumo(s) com artigo completo correspondente.")
         st.dataframe(rxc["resumos_com_completo"][[c for c in cols_rxc if c in rxc["resumos_com_completo"].columns]],
                      use_container_width=True, height=400, hide_index=True)
+    with t4:
+        st.caption("Resumos e artigos ligados porque o mesmo apresentador/1º autor tem um resumo e um artigo "
+                   "sobrando, mas o **título mudou**. Confira se de fato são o mesmo trabalho.")
+        if n_prov > 0:
+            st.dataframe(rxc["pares_provaveis"], use_container_width=True, height=400, hide_index=True)
+            st.download_button("⬇️ Baixar pares prováveis (CSV)",
+                               rxc["pares_provaveis"].to_csv(index=False).encode("utf-8-sig"),
+                               "pares_provaveis_titulo_alterado.csv", "text/csv")
+        else:
+            st.info("Nenhum par provável encontrado.")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔬 Área Temática")
@@ -1334,7 +1391,7 @@ st.markdown("""
     color: #1e3a8a;
     font-size: 0.95rem;
 ">
-    <strong>ℹ️ Aviso:</strong> Este dashboard foi criado por <strong>Cinzzas</strong>.
+    <strong>ℹ️ Aviso:</strong> Este dashboard foi criado por <strong>MelquinhoSedeque</strong>.
     Os dados carregados não são armazenados em servidor: Não altere o código no GitHub.
 </div>
 """, unsafe_allow_html=True)
@@ -1365,4 +1422,4 @@ if dados_resultados is not None:
         pagina_resultados(dados_resultados, dedup_part, qtd_rev)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Cinzzas")
+st.sidebar.caption("MelquinhoSedeque")
