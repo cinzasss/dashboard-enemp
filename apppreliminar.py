@@ -1181,48 +1181,17 @@ def pagina_resultados(dados_resultados: pd.DataFrame,
         else:
             st.info("Nenhum par provável encontrado.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔬 Área Temática")
     if len(r["area_tematica_contagem"]) > 0:
-        df_area = r["area_tematica_contagem"].reset_index()
-        df_area.columns = ["Área Temática", "Quantidade"]
-        total_area = df_area["Quantidade"].sum()
-        df_area["Porcentagem"] = (df_area["Quantidade"] / total_area * 100).round(1)
-        df_area["_label"] = df_area["Porcentagem"].apply(lambda v: f"{v:.1f}%")
-
-        fig = px.bar(
-            df_area.sort_values("Porcentagem"),
-            x="Porcentagem",
-            y="Área Temática",
-            orientation="h",
-            text="_label",
-            color="Porcentagem",
-            color_continuous_scale="Purples",
-            custom_data=["Quantidade", "_label"],
-        )
-        fig.update_traces(
-            textposition="outside",
-            textfont=dict(color="black", size=13),
-            hovertemplate="<b>%{y}</b><br>%{customdata[0]} trabalhos<br>%{customdata[1]}<extra></extra>",
-        )
-        fig.update_layout(
-            showlegend=False,
-            coloraxis_showscale=False,
-            xaxis_title="% dos trabalhos",
-            yaxis_title="",
-            height=450,
-            xaxis=dict(ticksuffix="%", tickfont=dict(color="black"), title_font=dict(color="black")),
-            yaxis=dict(tickfont=dict(color="black")),
-            font=dict(color="black"),
-        )
+        df_area = r["area_tematica_contagem"].reset_index(); df_area.columns = ["Área Temática", "Quantidade"]
+        fig = px.bar(df_area.sort_values("Quantidade"), x="Quantidade", y="Área Temática", orientation="h",
+                     text="Quantidade", color="Quantidade", color_continuous_scale="Purples")
+        fig.update_traces(textposition="outside")
+        fig.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Nº de trabalhos", yaxis_title="", height=450)
         st.plotly_chart(fig, use_container_width=True)
-        st.caption(
-            f"Percentual calculado sobre **{total_area} trabalhos** com Área Temática preenchida. "
-            f"Passe o mouse nas barras para ver a quantidade exata."
-        )
     else:
         st.caption("Coluna 'Área Temática' não encontrada.")
-    )
     if len(r["autores_repetidos"]) > 0:
         top_autores = r["autores_repetidos"].head(20)
         fig = px.bar(top_autores.sort_values("Qtd. de Trabalhos"), x="Qtd. de Trabalhos", y="Autor", orientation="h",
