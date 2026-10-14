@@ -1181,7 +1181,7 @@ def pagina_resultados(dados_resultados: pd.DataFrame,
         else:
             st.info("Nenhum par provável encontrado.")
 
-     st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔬 Área Temática")
     if len(r["area_tematica_contagem"]) > 0:
         df_area = r["area_tematica_contagem"].reset_index(); df_area.columns = ["Área Temática", "Quantidade"]
