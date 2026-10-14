@@ -6,6 +6,18 @@ import pandas as pd
 import plotly.express as px
 
 # ==========================================================
+# VERSÃO DE CACHE
+# ----------------------------------------------------------
+# Incrementar SEMPRE que a ESTRUTURA do retorno de funções
+# cacheadas mudar. Isso força o Streamlit a descartar a cache
+# antiga e recalcular.
+# ==========================================================
+CACHE_VERSION = 2
+
+# Descomente UMA vez se quiser forçar a limpeza total da cache agora.
+# st.cache_data.clear()
+
+# ==========================================================
 # DICIONÁRIO DE ALIASES DE INSTITUIÇÕES
 # ==========================================================
 ALIASES_INSTITUICAO = [
@@ -70,11 +82,6 @@ def canonicalizar_instituicao(valor: str) -> str:
 
 # ==========================================================
 # INSTITUIÇÃO -> ESTADO / REGIÃO
-# ----------------------------------------------------------
-# Não existe coluna de estado/região nas planilhas: mapeamos
-# a partir do nome canônico da instituição (mesmo dicionário
-# de aliases acima). Instituições fora dessa lista aparecem
-# como "Não identificado".
 # ==========================================================
 INSTITUICAO_LOCALIZACAO = {
     "UNIFESSPA - Universidade Federal do Sul e Sudeste do Pará": ("PA", "Norte"),
@@ -131,7 +138,7 @@ def localizar_instituicao(nome_canonico: str):
 
 
 # ==========================================================
-# DEDUPLICAÇÃO DE PARTICIPANTES (mesma pessoa inscrita 2x)
+# DEDUPLICAÇÃO DE PARTICIPANTES
 # ==========================================================
 def _normalizar_nome(nome: str) -> str:
     nome = str(nome).strip().upper()
@@ -148,7 +155,6 @@ def _escolher_linha(grupo: pd.DataFrame) -> pd.Series:
 
 
 def deduplicar_participantes(df: pd.DataFrame):
-    """Retorna (df_sem_duplicados, df_duplicados_detectados)."""
     if "Nome" not in df.columns:
         return df, df.iloc[0:0]
 
@@ -228,7 +234,7 @@ def analisar_instituicoes(df: pd.DataFrame, col="Instituição") -> dict:
 
 
 @st.cache_data
-def calcular_metricas_participantes(dados: pd.DataFrame):
+def calcular_metricas_participantes(dados: pd.DataFrame, cache_ver: int = CACHE_VERSION):
     if "Inscrição" not in dados.columns:
         st.error("A coluna 'Inscrição' não foi encontrada na planilha de participantes.")
         st.stop()
@@ -365,7 +371,6 @@ def pagina_participantes(dados: pd.DataFrame):
 # MÉTRICAS — TRABALHOS / RESULTADOS
 # ==========================================================
 def _normalizar_formato_apresentacao(valor) -> str:
-    """Normaliza o texto do formato para facilitar filtros (Pôster/Oral)."""
     if pd.isna(valor):
         return ""
     texto = unicodedata.normalize("NFKD", str(valor)).encode("ascii", "ignore").decode("ascii")
@@ -373,7 +378,6 @@ def _normalizar_formato_apresentacao(valor) -> str:
 
 
 def _explodir_formato_apresentacao(serie: pd.Series) -> pd.Series:
-    """'Oral; Pôster' -> conta 1 para 'Oral' e 1 para 'Pôster' (multi-seleção)."""
     itens = []
     for valor in serie.dropna():
         for parte in re.split(r"[;,]", str(valor)):
@@ -384,7 +388,6 @@ def _explodir_formato_apresentacao(serie: pd.Series) -> pd.Series:
 
 
 def _trabalhos_por_formato(df: pd.DataFrame, formato: str) -> pd.DataFrame:
-    """Retorna os trabalhos cujo formato de apresentação contém o formato solicitado."""
     if "Formato de apresentação desejado" not in df.columns:
         return df.iloc[0:0].copy()
     alvo = _normalizar_formato_apresentacao(formato)
@@ -395,7 +398,6 @@ def _trabalhos_por_formato(df: pd.DataFrame, formato: str) -> pd.DataFrame:
 
 
 def _trabalhos_student(df: pd.DataFrame) -> pd.DataFrame:
-    """Retorna os trabalhos com categoria de Student Contest preenchida."""
     if "Categoria de student contest" not in df.columns:
         return df.iloc[0:0].copy()
     coluna = df["Categoria de student contest"].astype("string").str.strip()
@@ -403,7 +405,6 @@ def _trabalhos_student(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _colunas_trabalhos_para_exibicao(df: pd.DataFrame) -> list[str]:
-    """Seleciona as colunas mais úteis para a lista interativa de trabalhos."""
     preferidas = [
         "Título", "Titulo", "Título do Trabalho", "Titulo do Trabalho",
         "Autores", "Autor(es)", "Autor",
@@ -418,10 +419,6 @@ def _colunas_trabalhos_para_exibicao(df: pd.DataFrame) -> list[str]:
 
 
 def _explodir_autores(df: pd.DataFrame) -> pd.DataFrame:
-    """Separa a coluna 'Autores' (nomes separados por vírgula) em uma linha por
-    autor x trabalho. Usa o mesmo tipo de normalização (maiúsc./acento/espaço)
-    da deduplicação de participantes, para não contar 'José Silva' e 'Jose Silva'
-    como pessoas diferentes."""
     linhas = []
     for _, linha in df.iterrows():
         autores = [a.strip() for a in str(linha.get("Autores", "")).split(",") if a.strip()]
@@ -437,8 +434,6 @@ def _explodir_autores(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def analisar_autores_repetidos(df: pd.DataFrame) -> pd.DataFrame:
-    """Retorna uma linha por autor distinto (nome normalizado) que aparece em
-    mais de um trabalho, com a quantidade de trabalhos e os títulos."""
     if "Autores" not in df.columns:
         return pd.DataFrame(columns=["Autor", "Qtd. de Trabalhos", "Títulos"])
 
@@ -446,7 +441,6 @@ def analisar_autores_repetidos(df: pd.DataFrame) -> pd.DataFrame:
     if ex.empty:
         return pd.DataFrame(columns=["Autor", "Qtd. de Trabalhos", "Títulos"])
 
-    # nome de exibição = variante mais frequente daquele nome normalizado
     nome_exibicao = ex.groupby("_autor_norm")["Autor"].agg(lambda s: s.value_counts().idxmax())
 
     agregado = ex.groupby("_autor_norm").agg(
@@ -461,12 +455,6 @@ def analisar_autores_repetidos(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def analisar_autor_principal(df: pd.DataFrame) -> pd.DataFrame:
-    """Considera só o PRIMEIRO nome listado em 'Autores' de cada trabalho —
-    geralmente o autor principal (aluno/pesquisador que de fato desenvolveu o
-    trabalho), diferente da lista de coautores (que costuma incluir
-    orientadores/coordenadores repetidos em vários trabalhos do grupo).
-    Retorna uma linha por autor principal distinto, com a quantidade de
-    trabalhos em que aparece como primeiro autor."""
     if "Autores" not in df.columns:
         return pd.DataFrame(columns=["Autor Principal", "Qtd. de Trabalhos", "Títulos"])
 
@@ -499,29 +487,17 @@ def analisar_autor_principal(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _normalizar_titulo(titulo: str) -> str:
-    """Normaliza títulos para comparação entre versões do mesmo trabalho.
-
-    Além de acentos/pontuação, corrige algumas grafias químicas recorrentes.
-    A normalização bilíngue é feita separadamente em _tokens_titulo_bilingue().
-    """
     titulo = str(titulo).strip().upper()
     titulo = ''.join(
         c for c in unicodedata.normalize('NFD', titulo)
         if unicodedata.category(c) != 'Mn'
     )
-
-    # Grafia recorrente na base: AIMCM-48 x AlMCM-48.
     titulo = re.sub(r'\bAI(?=MCM\s*-?\s*\d+)', 'AL', titulo)
-
     titulo = re.sub(r'[^A-Z0-9\s]', ' ', titulo)
     return re.sub(r'\s+', ' ', titulo).strip()
 
 
-# Termos acadêmicos que aparecem frequentemente em títulos bilíngues da base.
-# O objetivo não é traduzir o título para exibição, mas colocar palavras
-# equivalentes em um mesmo espaço de comparação.
 TRADUCAO_TITULO = {
-    # estruturas acadêmicas
     "ANALISE": "ANALYSIS", "ANALYSIS": "ANALYSIS",
     "COMPARATIVA": "COMPARATIVE", "COMPARATIVE": "COMPARATIVE",
     "AVALIACAO": "EVALUATION", "EVALUATION": "EVALUATION",
@@ -535,8 +511,6 @@ TRADUCAO_TITULO = {
     "APLICACAO": "APPLICATION", "APPLICATION": "APPLICATION",
     "UTILIZACAO": "USE", "USO": "USE", "USE": "USE",
     "DESCRICAO": "DESCRIPTION", "DESCRIPTION": "DESCRIPTION",
-
-    # fenômeno / processo
     "DINAMICA": "DYNAMICS", "DYNAMICS": "DYNAMICS",
     "SEDIMENTACAO": "SEDIMENTATION", "SEDIMENTATION": "SEDIMENTATION",
     "PARTICULA": "PARTICLE", "PARTICULAS": "PARTICLES",
@@ -550,16 +524,12 @@ TRADUCAO_TITULO = {
     "PRESSAO": "PRESSURE", "PRESSURE": "PRESSURE",
     "TEMPERATURA": "TEMPERATURE", "TEMPERATURE": "TEMPERATURE",
     "SOB": "UNDER", "UNDER": "UNDER",
-
-    # materiais / técnicas
     "CALCITA": "CALCITE", "CALCITE": "CALCITE",
     "AGUA": "WATER", "WATER": "WATER",
     "TRATAMENTO": "TREATMENT", "TREATMENT": "TREATMENT",
     "REJEITO": "TAILINGS", "TAILINGS": "TAILINGS",
     "FOSFATICO": "PHOSPHATE", "PHOSPHATE": "PHOSPHATE",
     "MODIFICADO": "MODIFIED", "MODIFIED": "MODIFIED",
-
-    # palavras funcionais que ajudam a equivalência, mas têm pouco peso
     "COM": "WITH", "WITH": "WITH",
     "EM": "IN", "IN": "IN",
     "DE": "OF", "OF": "OF",
@@ -571,19 +541,16 @@ TRADUCAO_TITULO = {
     "SOBRE": "ON", "ON": "ON",
 }
 
-# Palavras de estrutura muito comuns têm pouco poder discriminatório.
 _STOPWORDS_TITULO = {
     "THE", "OF", "AND", "IN", "ON", "WITH", "FOR", "TO", "A", "AN", "UNDER",
 }
 
 
 def _tokens_titulo_bilingue(titulo: str) -> list[str]:
-    """Converte tokens PT/EN equivalentes para uma representação comum."""
     normalizado = _normalizar_titulo(titulo)
     tokens = []
     for token in normalizado.split():
         canon = TRADUCAO_TITULO.get(token, token)
-        # Reduz plurais simples para melhorar equivalência PT/EN.
         if canon.endswith('S') and len(canon) > 5:
             canon = canon[:-1]
         if canon not in _STOPWORDS_TITULO:
@@ -602,43 +569,26 @@ def _autor_principal_normalizado(linha: pd.Series) -> str:
 
 
 def _similaridade_titulos(t1: str, t2: str) -> float:
-    """Similaridade híbrida para títulos iguais, quase iguais ou bilíngues."""
     if not t1 or not t2:
         return 0.0
     if t1 == t2:
         return 1.0
-
-    # Similaridade textual direta para pequenas diferenças de digitação.
     direta = SequenceMatcher(None, t1, t2).ratio()
-
-    # Similaridade por tokens traduzidos PT/EN.
     tok1 = set(_tokens_titulo_bilingue(t1))
     tok2 = set(_tokens_titulo_bilingue(t2))
     if not tok1 or not tok2:
         return direta
     jaccard = len(tok1 & tok2) / len(tok1 | tok2)
-
-    # Cobertura: útil quando uma versão possui pequenas palavras adicionais.
     cobertura = len(tok1 & tok2) / min(len(tok1), len(tok2))
-
-    # A equivalência bilíngue exige bastante conteúdo em comum, não apenas
-    # palavras genéricas como "analysis", "effects" ou "study".
     conteudo_comum = tok1 & tok2
     informativas = conteudo_comum - {"ANALYSIS", "COMPARATIVE", "EVALUATION", "STUDY", "EFFECT", "EFFECTS"}
     cobertura_informativa = (
         len(informativas) / max(1, min(len(tok1 - _STOPWORDS_TITULO), len(tok2 - _STOPWORDS_TITULO)))
     )
-
     return max(direta, jaccard * 0.85 + cobertura * 0.15, cobertura_informativa * 0.90)
 
 
 def _mesmo_trabalho(linha_a: pd.Series, linha_b: pd.Series) -> bool:
-    """Decide se duas linhas representam o mesmo trabalho.
-
-    Exige o mesmo primeiro autor. Para o título, aceita igualdade normalizada,
-    pequenas diferenças textuais ou equivalência bilíngue PT/EN com alta
-    sobreposição de termos informativos.
-    """
     autor_a = _autor_principal_normalizado(linha_a)
     autor_b = _autor_principal_normalizado(linha_b)
     if not autor_a or autor_a != autor_b:
@@ -663,12 +613,9 @@ def _mesmo_trabalho(linha_a: pd.Series, linha_b: pd.Series) -> bool:
     min_informativas = max(1, min(len(tok_a - _STOPWORDS_TITULO), len(tok_b - _STOPWORDS_TITULO)))
     cobertura_informativa = len(informativas) / min_informativas
 
-    # Pequenas diferenças de grafia.
     if direta >= 0.94:
         return True
 
-    # Versões PT/EN: requer forte correspondência de termos informativos.
-    # Evita que apenas o tema geral seja suficiente para fundir trabalhos.
     if cobertura_informativa >= 0.80 and jaccard >= 0.55:
         return True
 
@@ -676,21 +623,12 @@ def _mesmo_trabalho(linha_a: pd.Series, linha_b: pd.Series) -> bool:
 
 
 def _chave_trabalho(linha: pd.Series) -> str:
-    """Chave para títulos que ficam idênticos após normalização."""
     titulo = _normalizar_titulo(linha.get("Título", ""))
     autor = _autor_principal_normalizado(linha)
     return f"{titulo}|||{autor}"
 
 
 def deduplicar_trabalhos(df: pd.DataFrame):
-    """Une versões do mesmo trabalho, inclusive versões PT/EN.
-
-    A comparação ocorre somente entre registros do mesmo primeiro autor.
-    Primeiro usa igualdade da chave normalizada; depois procura equivalência
-    textual ou bilíngue. Assim, um resumo em português e seu trabalho completo
-    em inglês podem ser um único trabalho, enquanto dois trabalhos apenas
-    relacionados pelo assunto permanecem separados.
-    """
     if df.empty or "Título" not in df.columns:
         return df.copy(), df.iloc[0:0].copy()
 
@@ -723,7 +661,6 @@ def deduplicar_trabalhos(df: pd.DataFrame):
         if ra != rb:
             parent[rb] = ra
 
-    # Agrupamento exato após normalização.
     grupos_chave = {}
     for pos, (_, row) in enumerate(candidatos.iterrows()):
         chave = f"{row['_titulo_norm']}|||{row['_autor_principal_norm']}"
@@ -732,7 +669,6 @@ def deduplicar_trabalhos(df: pd.DataFrame):
         for pos in indices[1:]:
             union(indices[0], pos)
 
-    # Comparação PT/EN e pequenas variações, sempre dentro do mesmo autor.
     for _, grupo in candidatos.groupby("_autor_principal_norm", sort=False):
         indices = list(grupo.index)
         for i in range(len(indices)):
@@ -779,18 +715,6 @@ def deduplicar_trabalhos(df: pd.DataFrame):
 
 
 def analisar_resumos_x_completos(df: pd.DataFrame) -> dict:
-    """Pareia cada Artigo Completo com o Resumo que o originou, para saber
-    quais resumos NÃO viraram artigo completo (e vice-versa).
-
-    A coluna 'Submeteu Trabalho Completo' da planilha vem toda 'Não', então o
-    pareamento é feito por conteúdo, em dois passos:
-      1) mesmo 1º autor + título equivalente (mesma regra da deduplicação);
-      2) título praticamente idêntico (>= 85%), mesmo que o 1º autor mude;
-      3) TÍTULO ALTERADO: mesmo apresentador (e-mail) ou mesmo 1º autor, entre os
-         resumos e artigos que sobraram. Se só há um candidato, o par é feito;
-         se há vários, só pareia quando o título ainda é parecido (>= 50%).
-         Esses pares são marcados como 'prováveis' para conferência manual.
-    Artigos sem resumo pareado vão para uma lista de conferência manual."""
     vazio = {"resumos_total": 0, "completos_total": 0, "resumos_com_completo": df.iloc[0:0],
              "resumos_sem_completo": df.iloc[0:0], "completos_sem_resumo": df.iloc[0:0],
              "pares_provaveis": pd.DataFrame()}
@@ -804,10 +728,9 @@ def analisar_resumos_x_completos(df: pd.DataFrame) -> dict:
     resumos = d[~d["_eh_completo"]]
     completos = d[d["_eh_completo"]]
 
-    par = {}          # índice do completo -> índice do resumo
-    usados = set()    # resumos já pareados
+    par = {}
+    usados = set()
 
-    # passo 1: mesmo 1º autor + título equivalente
     for i, c in completos.iterrows():
         for j, s in resumos[resumos["_a"] == c["_a"]].iterrows():
             if j not in usados and _mesmo_trabalho(c, s):
@@ -815,7 +738,6 @@ def analisar_resumos_x_completos(df: pd.DataFrame) -> dict:
                 usados.add(j)
                 break
 
-    # passo 2: título quase idêntico, ignorando diferença no 1º autor
     for i, c in completos.iterrows():
         if i in par or not c["_t"]:
             continue
@@ -830,7 +752,6 @@ def analisar_resumos_x_completos(df: pd.DataFrame) -> dict:
             par[i] = melhor
             usados.add(melhor)
 
-    # passo 3: título alterado -> mesmo apresentador (e-mail) ou mesmo 1º autor
     col_em = "Email dos apresentadores"
     d["_em"] = d[col_em].astype(str).str.strip().str.lower() if col_em in d.columns else ""
     resumos = d[~d["_eh_completo"]]
@@ -846,7 +767,6 @@ def analisar_resumos_x_completos(df: pd.DataFrame) -> dict:
         sims = {j: SequenceMatcher(None, c["_t"], s_["_t"]).ratio() for j, s_ in pool.iterrows()}
         j_best = max(sims, key=sims.get)
         propostas.append((len(pool) == 1, sims[j_best], i, j_best, len(pool)))
-    # candidatos únicos primeiro; depois os mais parecidos
     propostas.sort(key=lambda x: (not x[0], -x[1]))
     linhas_prov = []
     for unico, sim, i, j, n_cand in propostas:
@@ -876,14 +796,13 @@ def analisar_resumos_x_completos(df: pd.DataFrame) -> dict:
 
 
 @st.cache_data
-def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup: pd.DataFrame | None):
+def calcular_metricas_resultados(dados_resultados: pd.DataFrame,
+                                  dados_participantes_dedup: pd.DataFrame | None,
+                                  cache_ver: int = CACHE_VERSION):
     df_original = dados_resultados.copy()
 
-    # ---- deduplicação de versões do mesmo trabalho ----
-    # Resumo + Trabalho Completo do mesmo trabalho passam a contar como 1 trabalho.
     df, trabalhos_duplicados = deduplicar_trabalhos(df_original)
 
-    # ---- cruzamento com participantes via e-mail do apresentador ----
     if dados_participantes_dedup is not None and "E-mail" in dados_participantes_dedup.columns:
         part = dados_participantes_dedup.copy()
         part["_email"] = part["E-mail"].astype(str).str.strip().str.lower()
@@ -898,16 +817,13 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
         df["_inst_participante"] = pd.NA
         df["_formacao_participante"] = pd.NA
 
-    # ---- modalidade: resumo x trabalho completo ----
     modalidade = df["modalidade"].astype(str)
     resumos = df[modalidade.str.contains("Resumo", na=False)]
     completos = df[modalidade.str.contains("Trabalho Completo", na=False)]
 
-    # ---- situação / aceite ----
     aceitos = df[df["Situação"] == "Aprovado"] if "Situação" in df.columns else pd.DataFrame()
     situacao_contagem = df["Situação"].value_counts(dropna=False) if "Situação" in df.columns else pd.Series(dtype=int)
 
-    # ---- instituição: prioriza a coluna do próprio resultado, completa com a do participante ----
     if "Instituição (apresentador)" in df.columns:
         inst_final = df["Instituição (apresentador)"].fillna(df["_inst_participante"])
     else:
@@ -919,14 +835,12 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
     inst_nao_identificado = int(inst_contagem.get("Não respondeu", 0)) + int(inst_contagem.get("Nan", 0))
     inst_top = inst_contagem.drop(["Não respondeu", "Nan"], errors="ignore").head(15)
 
-    # ---- região / estado (a partir da instituição canonicalizada) ----
     localizacoes = inst_canon.apply(localizar_instituicao)
     estados = localizacoes.apply(lambda x: x[0])
     regioes = localizacoes.apply(lambda x: x[1])
     estado_contagem = estados[estados != "Não identificado"].value_counts()
     regiao_contagem = regioes[regioes != "Não identificado"].value_counts()
 
-    # ---- formação do inscrito (via cruzamento com participantes) ----
     formacao_final = df["_formacao_participante"]
     grad = int((formacao_final == "Graduação completa").sum())
     mestrado = int((formacao_final == "Mestrado completo").sum())
@@ -934,7 +848,6 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
     ensino_medio = int((formacao_final == "Ensino médio completo").sum())
     formacao_nao_encontrada = int(formacao_final.isna().sum())
 
-    # ---- student contest: categoria ----
     if "Categoria de student contest" in df.columns:
         student_col = df["Categoria de student contest"].astype("string").str.strip()
         student_contest_qtd = int(student_col.notna().sum() - student_col.eq("").sum())
@@ -943,7 +856,6 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
         student_contest_qtd = 0
         student_contest_cat = pd.Series(dtype=int)
 
-    # ---- formato de apresentação (pôster / oral) ----
     if "Formato de apresentação desejado" in df.columns:
         formatos_explodidos = _explodir_formato_apresentacao(df["Formato de apresentação desejado"])
         formato_contagem = formatos_explodidos.value_counts()
@@ -957,24 +869,19 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
     poster_qtd = len(trabalhos_poster)
     oral_qtd = len(trabalhos_oral)
 
-    # ---- área temática ----
     area_tematica_contagem = df["Área Temática"].value_counts(dropna=False) if "Área Temática" in df.columns else pd.Series(dtype=int)
 
-    # ---- autores com mais de um trabalho (coautores, incl. orientadores) ----
     autores_repetidos = analisar_autores_repetidos(df)
     autores_distintos = _explodir_autores(df)["_autor_norm"].nunique() if "Autores" in df.columns else 0
 
-    # ---- autor principal (primeiro nome listado em 'Autores') ----
     autor_principal_todos = analisar_autor_principal(df)
     autores_principais_distintos = len(autor_principal_todos)
     autor_principal_repetido = autor_principal_todos[autor_principal_todos["Qtd. de Trabalhos"] > 1].reset_index(drop=True)
 
-    # ---- contagens brutas por modalidade (antes da deduplicação) ----
     mod_orig = df_original["modalidade"].astype(str) if "modalidade" in df_original.columns else pd.Series(dtype=str)
     resumos_orig_qtd = int(mod_orig.str.contains("Resumo", case=False, na=False).sum())
     completos_orig_qtd = int(mod_orig.str.contains("Trabalho Completo", case=False, na=False).sum())
 
-    # ---- trabalhos aceitos / apresentados por formato (pôster e oral) ----
     aceitos_poster = _trabalhos_por_formato(aceitos, "Pôster")
     aceitos_oral = _trabalhos_por_formato(aceitos, "Oral")
     if "Apresentado" in df.columns:
@@ -984,7 +891,6 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
     apresentados_poster = _trabalhos_por_formato(apresentados, "Pôster")
     apresentados_oral = _trabalhos_por_formato(apresentados, "Oral")
 
-    # ---- resumos x artigos completos (usa os registros originais) ----
     rxc = analisar_resumos_x_completos(df_original)
 
     return {
@@ -1015,7 +921,6 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
         "autores_principais_distintos": autores_principais_distintos,
         "autor_principal_repetido": autor_principal_repetido,
         "tem_cruzamento": dados_participantes_dedup is not None,
-        # novos
         "resumos_orig_qtd": resumos_orig_qtd,
         "completos_orig_qtd": completos_orig_qtd,
         "aceitos_poster_qtd": len(aceitos_poster),
@@ -1026,7 +931,9 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
     }
 
 
-def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup: pd.DataFrame | None, qtd_revisores: int | None):
+def pagina_resultados(dados_resultados: pd.DataFrame,
+                      dados_participantes_dedup: pd.DataFrame | None,
+                      qtd_revisores: int | None):
     r = calcular_metricas_resultados(dados_resultados, dados_participantes_dedup)
 
     if not r["tem_cruzamento"]:
@@ -1060,7 +967,6 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
             st.session_state["lista_trabalhos_aberta"] = "student"
     with c5: card("Trabalhos Aceitos", len(r["aceitos"]), "#16a34a")
 
-    # ---- NOVO: resumos, artigos completos e revisores ----
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
     with c1: card("Resumos submetidos", r["resumos_orig_qtd"], "#0ea5e9")
@@ -1187,7 +1093,6 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
         else:
             st.caption("Coluna de formato de apresentação não encontrada.")
 
-    # ---- NOVO: trabalhos apresentados (pôster e oral) ----
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🎤 Trabalhos Apresentados (Pôster e Oral)")
     st.caption(
@@ -1202,10 +1107,10 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
     with c4: card("Oral apresentados", r["apresentados_oral_qtd"], "#ea580c")
     with c5: card("Total apresentados", r["apresentados_qtd"], "#16a34a")
 
-    # ---- NOVO: avaliação resumos x artigos completos ----
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📝 Resumos × Artigos Completos")
     rxc = r["rxc"]
+    pares_provaveis = rxc.get("pares_provaveis", pd.DataFrame())
     n_res, n_comp = rxc["resumos_total"], rxc["completos_total"]
     n_com_art = len(rxc["resumos_com_completo"])
     n_sem_art = len(rxc["resumos_sem_completo"])
@@ -1220,7 +1125,7 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
         "para você conferir. A coluna 'Submeteu Trabalho Completo' da planilha está toda como 'Não', por isso "
         "o pareamento é feito pelo conteúdo."
     )
-    n_prov = len(rxc["pares_provaveis"])
+    n_prov = len(pares_provaveis)
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: card("Resumos (registros)", n_res, "#0ea5e9")
     with c2: card("Artigos completos (registros)", n_comp, "#22c55e")
@@ -1268,9 +1173,9 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
         st.caption("Resumos e artigos ligados porque o mesmo apresentador/1º autor tem um resumo e um artigo "
                    "sobrando, mas o **título mudou**. Confira se de fato são o mesmo trabalho.")
         if n_prov > 0:
-            st.dataframe(rxc["pares_provaveis"], use_container_width=True, height=400, hide_index=True)
+            st.dataframe(pares_provaveis, use_container_width=True, height=400, hide_index=True)
             st.download_button("⬇️ Baixar pares prováveis (CSV)",
-                               rxc["pares_provaveis"].to_csv(index=False).encode("utf-8-sig"),
+                               pares_provaveis.to_csv(index=False).encode("utf-8-sig"),
                                "pares_provaveis_titulo_alterado.csv", "text/csv")
         else:
             st.info("Nenhum par provável encontrado.")
