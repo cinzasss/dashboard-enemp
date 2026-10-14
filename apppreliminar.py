@@ -1334,7 +1334,7 @@ st.markdown("""
     color: #1e3a8a;
     font-size: 0.95rem;
 ">
-    <strong>ℹ️ Aviso:</strong> Este dashboard foi criado por <strong>MelquinhoSedeque</strong>.
+    <strong>ℹ️ Aviso:</strong> Este dashboard foi criado por <strong>Cinzzas</strong>.
     Os dados carregados não são armazenados em servidor: Não altere o código no GitHub.
 </div>
 """, unsafe_allow_html=True)
