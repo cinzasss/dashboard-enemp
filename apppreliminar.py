@@ -1133,6 +1133,7 @@ def pagina_resultados(dados_resultados: pd.DataFrame,
     if n_prov:
         st.caption(f"Dos resumos que viraram artigo, **{n_prov}** foram pareados mesmo com o título alterado "
                    f"(pares prováveis — veja a aba 🔁).")
+        
     with c4: card("Resumos sem artigo completo", n_sem_art, "#f59e0b")
     with c5: card("Artigos sem resumo localizado", n_art_orfao, "#94a3b8")
 
@@ -1183,12 +1184,35 @@ def pagina_resultados(dados_resultados: pd.DataFrame,
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔬 Área Temática")
     if len(r["area_tematica_contagem"]) > 0:
-        df_area = r["area_tematica_contagem"].reset_index(); df_area.columns = ["Área Temática", "Quantidade"]
-        fig = px.bar(df_area.sort_values("Quantidade"), x="Quantidade", y="Área Temática", orientation="h",
-                     text="Quantidade", color="Quantidade", color_continuous_scale="Purples")
+        df_area = r["area_tematica_contagem"].reset_index()
+        df_area.columns = ["Área Temática", "Quantidade"]
+        total_area = df_area["Quantidade"].sum()
+        df_area["Porcentagem"] = (df_area["Quantidade"] / total_area * 100).round(1)
+        df_area["_label"] = df_area["Porcentagem"].apply(lambda v: f"{v:.1f}%")
+
+        fig = px.bar(
+            df_area.sort_values("Porcentagem"),
+            x="Porcentagem",
+            y="Área Temática",
+            orientation="h",
+            text="_label",
+            color="Porcentagem",
+            color_continuous_scale="Purples",
+        )
         fig.update_traces(textposition="outside")
-        fig.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Nº de trabalhos", yaxis_title="", height=450)
+        fig.update_layout(
+            showlegend=False,
+            coloraxis_showscale=False,
+            xaxis_title="% dos trabalhos",
+            yaxis_title="",
+            height=450,
+            xaxis=dict(ticksuffix="%"),
+        )
         st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            f"Percentual calculado sobre **{total_area} trabalhos** com Área Temática preenchida. "
+            f"Passe o mouse nas barras para ver a quantidade exata."
+        )
     else:
         st.caption("Coluna 'Área Temática' não encontrada.")
 
