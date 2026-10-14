@@ -778,6 +778,63 @@ def deduplicar_trabalhos(df: pd.DataFrame):
     return unicos.reset_index(drop=True), duplicados.reset_index(drop=True)
 
 
+def analisar_resumos_x_completos(df: pd.DataFrame) -> dict:
+    """Pareia cada Artigo Completo com o Resumo que o originou, para saber
+    quais resumos NÃO viraram artigo completo (e vice-versa).
+
+    A coluna 'Submeteu Trabalho Completo' da planilha vem toda 'Não', então o
+    pareamento é feito por conteúdo, em dois passos:
+      1) mesmo 1º autor + título equivalente (mesma regra da deduplicação);
+      2) título praticamente idêntico (>= 85%), mesmo que o 1º autor mude.
+    Artigos sem resumo pareado vão para uma lista de conferência manual."""
+    vazio = {"resumos_total": 0, "completos_total": 0, "resumos_com_completo": df.iloc[0:0],
+             "resumos_sem_completo": df.iloc[0:0], "completos_sem_resumo": df.iloc[0:0]}
+    if df.empty or "modalidade" not in df.columns or "Título" not in df.columns:
+        return vazio
+
+    d = df.copy().reset_index(drop=True)
+    d["_eh_completo"] = d["modalidade"].astype(str).str.contains("Completo", case=False, na=False)
+    d["_t"] = d["Título"].apply(_normalizar_titulo)
+    d["_a"] = d.apply(_autor_principal_normalizado, axis=1)
+    resumos = d[~d["_eh_completo"]]
+    completos = d[d["_eh_completo"]]
+
+    par = {}          # índice do completo -> índice do resumo
+    usados = set()    # resumos já pareados
+
+    # passo 1: mesmo 1º autor + título equivalente
+    for i, c in completos.iterrows():
+        for j, s in resumos[resumos["_a"] == c["_a"]].iterrows():
+            if j not in usados and _mesmo_trabalho(c, s):
+                par[i] = j
+                usados.add(j)
+                break
+
+    # passo 2: título quase idêntico, ignorando diferença no 1º autor
+    for i, c in completos.iterrows():
+        if i in par or not c["_t"]:
+            continue
+        melhor, melhor_sim = None, 0.0
+        for j, s in resumos.iterrows():
+            if j in usados:
+                continue
+            sim = SequenceMatcher(None, c["_t"], s["_t"]).ratio()
+            if sim > melhor_sim:
+                melhor, melhor_sim = j, sim
+        if melhor is not None and melhor_sim >= 0.85:
+            par[i] = melhor
+            usados.add(melhor)
+
+    aux = ["_eh_completo", "_t", "_a"]
+    return {
+        "resumos_total": len(resumos),
+        "completos_total": len(completos),
+        "resumos_com_completo": resumos.loc[sorted(usados)].drop(columns=aux).reset_index(drop=True),
+        "resumos_sem_completo": resumos.drop(index=list(usados)).drop(columns=aux).reset_index(drop=True),
+        "completos_sem_resumo": completos.drop(index=list(par.keys())).drop(columns=aux).reset_index(drop=True),
+    }
+
+
 @st.cache_data
 def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup: pd.DataFrame | None):
     df_original = dados_resultados.copy()
@@ -887,7 +944,11 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
     apresentados_poster = _trabalhos_por_formato(apresentados, "Pôster")
     apresentados_oral = _trabalhos_por_formato(apresentados, "Oral")
 
+    # ---- resumos x artigos completos (usa os registros originais) ----
+    rxc = analisar_resumos_x_completos(df_original)
+
     return {
+        "rxc": rxc,
         "dados": df,
         "dados_originais": df_original,
         "trabalhos_duplicados": trabalhos_duplicados,
@@ -1100,6 +1161,62 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
     with c3: card("Pôster apresentados", r["apresentados_poster_qtd"], "#0284c7")
     with c4: card("Oral apresentados", r["apresentados_oral_qtd"], "#ea580c")
     with c5: card("Total apresentados", r["apresentados_qtd"], "#16a34a")
+
+    # ---- NOVO: avaliação resumos x artigos completos ----
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("📝 Resumos × Artigos Completos")
+    rxc = r["rxc"]
+    n_res, n_comp = rxc["resumos_total"], rxc["completos_total"]
+    n_com_art = len(rxc["resumos_com_completo"])
+    n_sem_art = len(rxc["resumos_sem_completo"])
+    n_art_orfao = len(rxc["completos_sem_resumo"])
+    pct = f"{(n_com_art / n_res * 100):.0f}%" if n_res else "—"
+    st.caption(
+        "A planilha tem mais resumos do que artigos completos porque nem todo resumo virou artigo. "
+        "Aqui cada artigo completo é pareado com o resumo que o originou (mesmo 1º autor + título "
+        "equivalente, ou título quase idêntico) para mostrar **quais resumos ainda não têm artigo**. "
+        "A coluna 'Submeteu Trabalho Completo' da planilha está toda como 'Não', por isso o pareamento "
+        "é feito pelo conteúdo e pode ter pequenos desvios — confira as listas abaixo."
+    )
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1: card("Resumos (registros)", n_res, "#0ea5e9")
+    with c2: card("Artigos completos (registros)", n_comp, "#22c55e")
+    with c3: card("Resumos que viraram artigo", f"{n_com_art} ({pct})", "#16a34a")
+    with c4: card("Resumos sem artigo completo", n_sem_art, "#f59e0b")
+    with c5: card("Artigos sem resumo localizado", n_art_orfao, "#94a3b8")
+
+    cols_rxc = [c for c in ["Número", "Título", "Autores", "Apresentadores", "Email dos apresentadores",
+                            "Instituição (apresentador)", "Área Temática", "Categoria de student contest",
+                            "Formato de apresentação desejado", "Situação"]
+                if c in rxc["resumos_sem_completo"].columns]
+
+    if n_sem_art > 0 and "Área Temática" in rxc["resumos_sem_completo"].columns:
+        df_area_sem = rxc["resumos_sem_completo"]["Área Temática"].value_counts().reset_index()
+        df_area_sem.columns = ["Área Temática", "Quantidade"]
+        fig = px.bar(df_area_sem.sort_values("Quantidade"), x="Quantidade", y="Área Temática", orientation="h",
+                     text="Quantidade", color="Quantidade", color_continuous_scale="Oranges")
+        fig.update_traces(textposition="outside")
+        fig.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Resumos sem artigo completo",
+                          yaxis_title="", height=420)
+        st.plotly_chart(fig, use_container_width=True)
+
+    t1, t2, t3 = st.tabs(["⏳ Resumos sem artigo completo", "❓ Artigos sem resumo localizado", "✅ Resumos que viraram artigo"])
+    with t1:
+        st.caption(f"{n_sem_art} resumo(s) — autores que podem ser cobrados para enviar o artigo completo.")
+        st.dataframe(rxc["resumos_sem_completo"][cols_rxc], use_container_width=True, height=400, hide_index=True)
+        if n_sem_art > 0:
+            st.download_button("⬇️ Baixar resumos sem artigo completo (CSV)",
+                               rxc["resumos_sem_completo"][cols_rxc].to_csv(index=False).encode("utf-8-sig"),
+                               "resumos_sem_artigo_completo.csv", "text/csv")
+    with t2:
+        st.caption(f"{n_art_orfao} artigo(s) completo(s) sem resumo pareado — pode ser título/autor alterado "
+                   f"entre as versões; confira manualmente.")
+        st.dataframe(rxc["completos_sem_resumo"][[c for c in cols_rxc if c in rxc["completos_sem_resumo"].columns]],
+                     use_container_width=True, height=400, hide_index=True)
+    with t3:
+        st.caption(f"{n_com_art} resumo(s) com artigo completo correspondente.")
+        st.dataframe(rxc["resumos_com_completo"][[c for c in cols_rxc if c in rxc["resumos_com_completo"].columns]],
+                     use_container_width=True, height=400, hide_index=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔬 Área Temática")
