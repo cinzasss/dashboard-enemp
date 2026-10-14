@@ -1188,43 +1188,40 @@ def pagina_resultados(dados_resultados: pd.DataFrame,
         df_area.columns = ["Área Temática", "Quantidade"]
         total_area = df_area["Quantidade"].sum()
         df_area["Porcentagem"] = (df_area["Quantidade"] / total_area * 100).round(1)
+        df_area["_label"] = df_area["Porcentagem"].apply(lambda v: f"{v:.1f}%")
 
-        fig = px.pie(
-            df_area,
-            names="Área Temática",
-            values="Quantidade",
-            hole=0.4,
-            custom_data=["Quantidade", "Porcentagem"],
+        fig = px.bar(
+            df_area.sort_values("Porcentagem"),
+            x="Porcentagem",
+            y="Área Temática",
+            orientation="h",
+            text="_label",
+            color="Porcentagem",
+            color_continuous_scale="Purples",
+            custom_data=["Quantidade", "_label"],
         )
         fig.update_traces(
-            textinfo="percent+label",
-            textposition="inside",
-            insidetextorientation="radial",
+            textposition="outside",
             textfont=dict(color="black", size=13),
-            hovertemplate="<b>%{label}</b><br>%{customdata[0]} trabalhos<br>%{customdata[1]:.1f}%<extra></extra>",
-            marker=dict(line=dict(color="white", width=1.5)),
+            hovertemplate="<b>%{y}</b><br>%{customdata[0]} trabalhos<br>%{customdata[1]}<extra></extra>",
         )
         fig.update_layout(
-            showlegend=True,
-            legend=dict(font=dict(color="black", size=12)),
+            showlegend=False,
+            coloraxis_showscale=False,
+            xaxis_title="% dos trabalhos",
+            yaxis_title="",
+            height=450,
+            xaxis=dict(ticksuffix="%", tickfont=dict(color="black"), title_font=dict(color="black")),
+            yaxis=dict(tickfont=dict(color="black")),
             font=dict(color="black"),
-            height=600,
-            margin=dict(l=20, r=20, t=40, b=20),
         )
         st.plotly_chart(fig, use_container_width=True)
         st.caption(
             f"Percentual calculado sobre **{total_area} trabalhos** com Área Temática preenchida. "
-            f"Passe o mouse nas fatias para ver a quantidade exata."
+            f"Passe o mouse nas barras para ver a quantidade exata."
         )
     else:
         st.caption("Coluna 'Área Temática' não encontrada.")
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("✍️ Autores com mais de um trabalho")
-    st.caption(
-        f"{r['autores_distintos']} autores distintos ao todo (considerando todos os coautores, não só o "
-        f"apresentador) · **{len(r['autores_repetidos'])} deles aparecem em mais de um trabalho**. "
-        f"Nomes são unificados ignorando maiúsc./minúsc. e acentos — pode haver alguma coincidência de "
-        f"nomes homônimos, revise se for usar para algo crítico."
     )
     if len(r["autores_repetidos"]) > 0:
         top_autores = r["autores_repetidos"].head(20)
