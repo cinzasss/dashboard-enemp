@@ -527,7 +527,7 @@ TRADUCAO_TITULO = {
     "AVALIACAO": "EVALUATION", "EVALUATION": "EVALUATION",
     "ESTUDO": "STUDY", "STUDY": "STUDY",
     "EFEITO": "EFFECT", "EFEITOS": "EFFECTS", "EFFECT": "EFFECT", "EFFECTS": "EFFECTS",
-    "MODELAGEM": "MODELING", "MODELAGEM": "MODELING", "MODELING": "MODELING",
+    "MODELAGEM": "MODELING", "MODELING": "MODELING",
     "DESENVOLVIMENTO": "DEVELOPMENT", "DEVELOPMENT": "DEVELOPMENT",
     "CARACTERIZACAO": "CHARACTERIZATION", "CHARACTERIZATION": "CHARACTERIZATION",
     "DETERMINACAO": "DETERMINATION", "DETERMINATION": "DETERMINATION",
@@ -539,7 +539,6 @@ TRADUCAO_TITULO = {
     # fenômeno / processo
     "DINAMICA": "DYNAMICS", "DYNAMICS": "DYNAMICS",
     "SEDIMENTACAO": "SEDIMENTATION", "SEDIMENTATION": "SEDIMENTATION",
-    "SEDIMENTACAO": "SEDIMENTATION",
     "PARTICULA": "PARTICLE", "PARTICULAS": "PARTICLES",
     "PARTICLE": "PARTICLE", "PARTICLES": "PARTICLES",
     "FLUIDO": "FLUID", "FLUIDOS": "FLUIDS", "FLUID": "FLUID", "FLUIDS": "FLUIDS",
@@ -551,7 +550,6 @@ TRADUCAO_TITULO = {
     "PRESSAO": "PRESSURE", "PRESSURE": "PRESSURE",
     "TEMPERATURA": "TEMPERATURE", "TEMPERATURE": "TEMPERATURE",
     "SOB": "UNDER", "UNDER": "UNDER",
-    "DIFERENTES": "DIFFERENT", "DIFFERENT": "DIFFERENT",
 
     # materiais / técnicas
     "CALCITA": "CALCITE", "CALCITE": "CALCITE",
@@ -560,7 +558,6 @@ TRADUCAO_TITULO = {
     "REJEITO": "TAILINGS", "TAILINGS": "TAILINGS",
     "FOSFATICO": "PHOSPHATE", "PHOSPHATE": "PHOSPHATE",
     "MODIFICADO": "MODIFIED", "MODIFIED": "MODIFIED",
-    "DIFERENTES": "DIFFERENT", "DIFFERENT": "DIFFERENT",
 
     # palavras funcionais que ajudam a equivalência, mas têm pouco peso
     "COM": "WITH", "WITH": "WITH",
@@ -875,6 +872,21 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
     autores_principais_distintos = len(autor_principal_todos)
     autor_principal_repetido = autor_principal_todos[autor_principal_todos["Qtd. de Trabalhos"] > 1].reset_index(drop=True)
 
+    # ---- contagens brutas por modalidade (antes da deduplicação) ----
+    mod_orig = df_original["modalidade"].astype(str) if "modalidade" in df_original.columns else pd.Series(dtype=str)
+    resumos_orig_qtd = int(mod_orig.str.contains("Resumo", case=False, na=False).sum())
+    completos_orig_qtd = int(mod_orig.str.contains("Trabalho Completo", case=False, na=False).sum())
+
+    # ---- trabalhos aceitos / apresentados por formato (pôster e oral) ----
+    aceitos_poster = _trabalhos_por_formato(aceitos, "Pôster")
+    aceitos_oral = _trabalhos_por_formato(aceitos, "Oral")
+    if "Apresentado" in df.columns:
+        apresentados = df[df["Apresentado"].astype(str).str.strip().str.lower().isin(["sim", "s", "yes"])]
+    else:
+        apresentados = df.iloc[0:0]
+    apresentados_poster = _trabalhos_por_formato(apresentados, "Pôster")
+    apresentados_oral = _trabalhos_por_formato(apresentados, "Oral")
+
     return {
         "dados": df,
         "dados_originais": df_original,
@@ -902,6 +914,14 @@ def calcular_metricas_resultados(dados_resultados: pd.DataFrame, dados_participa
         "autores_principais_distintos": autores_principais_distintos,
         "autor_principal_repetido": autor_principal_repetido,
         "tem_cruzamento": dados_participantes_dedup is not None,
+        # novos
+        "resumos_orig_qtd": resumos_orig_qtd,
+        "completos_orig_qtd": completos_orig_qtd,
+        "aceitos_poster_qtd": len(aceitos_poster),
+        "aceitos_oral_qtd": len(aceitos_oral),
+        "apresentados_qtd": len(apresentados),
+        "apresentados_poster_qtd": len(apresentados_poster),
+        "apresentados_oral_qtd": len(apresentados_oral),
     }
 
 
@@ -938,6 +958,18 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
         if st.button("📋 Ver trabalhos Student", key="abrir_trabalhos_student", use_container_width=True):
             st.session_state["lista_trabalhos_aberta"] = "student"
     with c5: card("Trabalhos Aceitos", len(r["aceitos"]), "#16a34a")
+
+    # ---- NOVO: resumos, artigos completos e revisores ----
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1: card("Resumos submetidos", r["resumos_orig_qtd"], "#0ea5e9")
+    with c2: card("Artigos completos", r["completos_orig_qtd"], "#22c55e")
+    with c3: card("Nº de revisores", qtd_revisores if qtd_revisores is not None else "—", "#9333ea")
+    st.caption(
+        "Resumos e artigos completos contam os **registros originais** da planilha (um mesmo trabalho com "
+        "resumo + artigo completo aparece nos dois). Os 'Trabalhos Únicos' acima já unificam essas versões. "
+        "O nº de revisores vem da planilha de Participantes."
+    )
 
     st.caption(
         "Clique em **Ver trabalhos** para abrir a lista correspondente. "
@@ -1000,6 +1032,9 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
     with st.expander("📋 Ver contagem completa de todas as instituições"):
         df_all = r["inst_contagem"].reset_index(); df_all.columns = ["Instituição", "Quantidade"]
         st.dataframe(df_all, use_container_width=True, height=400)
+        st.download_button("⬇️ Baixar contagem por instituição (CSV)",
+                           df_all.to_csv(index=False).encode("utf-8-sig"),
+                           "trabalhos_por_instituicao.csv", "text/csv")
 
     st.markdown("<br>", unsafe_allow_html=True)
     col_esq, col_dir = st.columns(2)
@@ -1050,6 +1085,21 @@ def pagina_resultados(dados_resultados: pd.DataFrame, dados_participantes_dedup:
             st.caption("Trabalhos com formato 'Oral; Pôster' contam nas duas colunas.")
         else:
             st.caption("Coluna de formato de apresentação não encontrada.")
+
+    # ---- NOVO: trabalhos apresentados (pôster e oral) ----
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("🎤 Trabalhos Apresentados (Pôster e Oral)")
+    st.caption(
+        "**Aceitos** = trabalhos aprovados com aquele formato. **Apresentados** = marcados como 'Sim' na "
+        "coluna 'Apresentado' (atualize a planilha durante/após o evento). Trabalhos com formato "
+        "'Oral; Pôster' contam nos dois."
+    )
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1: card("Pôster aceitos", r["aceitos_poster_qtd"], "#0ea5e9")
+    with c2: card("Oral aceitos", r["aceitos_oral_qtd"], "#f97316")
+    with c3: card("Pôster apresentados", r["apresentados_poster_qtd"], "#0284c7")
+    with c4: card("Oral apresentados", r["apresentados_oral_qtd"], "#ea580c")
+    with c5: card("Total apresentados", r["apresentados_qtd"], "#16a34a")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔬 Área Temática")
